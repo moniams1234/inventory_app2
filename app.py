@@ -198,7 +198,174 @@ header {visibility: hidden;}
 """,
     unsafe_allow_html=True,
 )
+def render_charts(df: pd.DataFrame) -> None:
+    """Renderuje dashboard wykresów na podstawie przetworzonych danych."""
+    st.markdown('<div class="section-header">📈 Dashboard i wizualizacje</div>', unsafe_allow_html=True)
 
+    chart_df = df.copy()
+
+    # Bezpieczeństwo typów
+    chart_df["Wartość mag."] = pd.to_numeric(chart_df["Wartość mag."], errors="coerce").fillna(0.0)
+    chart_df["Kwota rezerwy"] = pd.to_numeric(chart_df["Kwota rezerwy"], errors="coerce").fillna(0.0)
+    chart_df["Rodzaj indeksu"] = chart_df["Rodzaj indeksu"].fillna("BRAK")
+    chart_df["Type of materials"] = chart_df["Type of materials"].fillna("UNMAPPED")
+    chart_df["Przedział wiekowania"] = chart_df["Przedział wiekowania"].fillna("BRAK")
+    chart_df["Magazyn"] = chart_df["Magazyn"].fillna("BRAK")
+
+    # -------------------------
+    # 1. Udział PROWAX / NON PROWAX
+    # -------------------------
+    share_df = (
+        chart_df.groupby("Rodzaj indeksu", as_index=False)["Wartość mag."]
+        .sum()
+        .sort_values("Wartość mag.", ascending=False)
+    )
+
+    fig_share = px.pie(
+        share_df,
+        names="Rodzaj indeksu",
+        values="Wartość mag.",
+        hole=0.55,
+        title="Udział procentowy stanu magazynowego: PROWAX / NON PROWAX",
+    )
+    fig_share.update_traces(textposition="inside", textinfo="percent+label")
+    fig_share.update_layout(
+        margin=dict(l=20, r=20, t=60, b=20),
+        legend_title_text="Rodzaj indeksu",
+        height=420,
+    )
+
+    # -------------------------
+    # 2. Stan magazynu i rezerwa: PROWAX / NON PROWAX
+    # -------------------------
+    compare_df = (
+        chart_df.groupby("Rodzaj indeksu", as_index=False)[["Wartość mag.", "Kwota rezerwy"]]
+        .sum()
+    )
+
+    compare_long = compare_df.melt(
+        id_vars="Rodzaj indeksu",
+        value_vars=["Wartość mag.", "Kwota rezerwy"],
+        var_name="Miara",
+        value_name="Wartość",
+    )
+
+    fig_compare = px.bar(
+        compare_long,
+        x="Wartość",
+        y="Rodzaj indeksu",
+        color="Miara",
+        barmode="group",
+        orientation="h",
+        title="PROWAX / NON PROWAX – stan magazynu i rezerwa",
+        text_auto=".2s",
+    )
+    fig_compare.update_layout(
+        margin=dict(l=20, r=20, t=60, b=20),
+        height=420,
+        xaxis_title="Wartość [PLN]",
+        yaxis_title="",
+        legend_title_text="Miara",
+    )
+
+    # -------------------------
+    # 3. Rezerwa wg Type of materials
+    # -------------------------
+    reserve_by_type = (
+        chart_df.groupby("Type of materials", as_index=False)["Kwota rezerwy"]
+        .sum()
+        .sort_values("Kwota rezerwy", ascending=False)
+    )
+
+    fig_type = px.bar(
+        reserve_by_type,
+        x="Type of materials",
+        y="Kwota rezerwy",
+        title="Kwota rezerwy wg Type of materials",
+        text_auto=".2s",
+    )
+    fig_type.update_layout(
+        margin=dict(l=20, r=20, t=60, b=20),
+        height=420,
+        xaxis_title="Type of materials",
+        yaxis_title="Kwota rezerwy [PLN]",
+    )
+
+    # -------------------------
+    # 4. Wiekowanie zapasu wg przedziałów i rodzaju indeksu
+    # -------------------------
+    age_order = ["0-3 mcy", "3-6 mcy", "6-9 mcy", "9-12 mcy", "pow 12 mcy", "data > dzień analizy", "BRAK"]
+
+    aging_df = (
+        chart_df.groupby(["Przedział wiekowania", "Rodzaj indeksu"], as_index=False)["Wartość mag."]
+        .sum()
+    )
+    aging_df["Przedział wiekowania"] = pd.Categorical(
+        aging_df["Przedział wiekowania"],
+        categories=age_order,
+        ordered=True,
+    )
+    aging_df = aging_df.sort_values("Przedział wiekowania")
+
+    fig_aging = px.bar(
+        aging_df,
+        x="Przedział wiekowania",
+        y="Wartość mag.",
+        color="Rodzaj indeksu",
+        barmode="stack",
+        title="Struktura wieku zapasu wg przedziałów",
+        text_auto=".2s",
+    )
+    fig_aging.update_layout(
+        margin=dict(l=20, r=20, t=60, b=20),
+        height=420,
+        xaxis_title="Przedział wiekowania",
+        yaxis_title="Wartość magazynowa [PLN]",
+        legend_title_text="Rodzaj indeksu",
+    )
+
+    # -------------------------
+    # 5. TOP 10 magazynów wg rezerwy
+    # -------------------------
+    top_mag = (
+        chart_df.groupby("Magazyn", as_index=False)["Kwota rezerwy"]
+        .sum()
+        .sort_values("Kwota rezerwy", ascending=False)
+        .head(10)
+    )
+
+    fig_top = px.bar(
+        top_mag.sort_values("Kwota rezerwy", ascending=True),
+        x="Kwota rezerwy",
+        y="Magazyn",
+        orientation="h",
+        title="TOP 10 magazynów wg kwoty rezerwy",
+        text_auto=".2s",
+    )
+    fig_top.update_layout(
+        margin=dict(l=20, r=20, t=60, b=20),
+        height=460,
+        xaxis_title="Kwota rezerwy [PLN]",
+        yaxis_title="",
+    )
+
+    # -------------------------
+    # Layout 2x2 + 1 pełna szerokość
+    # -------------------------
+    row1_col1, row1_col2 = st.columns(2, gap="large")
+    with row1_col1:
+        st.plotly_chart(fig_share, use_container_width=True)
+    with row1_col2:
+        st.plotly_chart(fig_compare, use_container_width=True)
+
+    row2_col1, row2_col2 = st.columns(2, gap="large")
+    with row2_col1:
+        st.plotly_chart(fig_type, use_container_width=True)
+    with row2_col2:
+        st.plotly_chart(fig_aging, use_container_width=True)
+
+    st.plotly_chart(fig_top, use_container_width=True)
+    
 # ---------------------------------------------------------------------------
 # Nagłówek
 # ---------------------------------------------------------------------------
@@ -376,16 +543,21 @@ if run_btn and can_run:
     summary: pd.DataFrame = result["summary"]
     stats: dict = result["stats"]
 
-    # Metryki
-    st.markdown('<div class="section-header">📊 Statystyki przetwarzania</div>', unsafe_allow_html=True)
-    display_metrics_row(stats)
-    st.markdown("<br>", unsafe_allow_html=True)
-    display_financial_metrics(stats)
+  # Metryki
+st.markdown('<div class="section-header">📊 Statystyki przetwarzania</div>', unsafe_allow_html=True)
+display_metrics_row(stats)
+st.markdown("<br>", unsafe_allow_html=True)
+display_financial_metrics(stats)
 
-    st.markdown("---")
+st.markdown("---")
 
-    # Podgląd wyników
-    tab1, tab2 = st.tabs(["📋 Dane szczegółowe (pierwsze 100 wierszy)", "📊 Tabela podsumowująca"])
+# Wykresy
+render_charts(df)
+
+st.markdown("---")
+
+# Podgląd wyników
+tab1, tab2 = st.tabs(["📋 Dane szczegółowe (pierwsze 100 wierszy)", "📊 Tabela podsumowująca"])
 
     with tab1:
         st.markdown(f"**Łącznie rekordów:** {len(df):,}".replace(",", " "))
