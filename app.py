@@ -559,7 +559,7 @@ st.markdown("---")
 # Podgląd wyników
 tab1, tab2 = st.tabs(["📋 Dane szczegółowe (pierwsze 100 wierszy)", "📊 Tabela podsumowująca"])
 
-    with tab1:
+with tab1:
         st.markdown(f"**Łącznie rekordów:** {len(df):,}".replace(",", " "))
         try:
             st.dataframe(style_detail_df(df), use_container_width=True, height=450)
@@ -572,7 +572,7 @@ tab1, tab2 = st.tabs(["📋 Dane szczegółowe (pierwsze 100 wierszy)", "📊 Ta
             ]]
             st.dataframe(df[display_cols].head(100), use_container_width=True, height=450)
 
-    with tab2:
+with tab2:
         try:
             st.dataframe(style_summary_df(summary), use_container_width=True)
         except Exception:
