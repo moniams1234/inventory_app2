@@ -598,10 +598,10 @@ with st.spinner("⏳ Generowanie pliku Excel..."):
             mapping_source_label=result["mapping_source_label"],
         )
 
- filename_date = analysis_date.strftime("%Y%m%d")
+filename_date = analysis_date.strftime("%Y%m%d")
 excel_filename = f"wiekowanie_zapasow_{filename_date}.xlsx"
 
- col1, col2, col3 = st.columns(3)
+col1, col2, col3 = st.columns(3)
 
 with col1:
        st.download_button(
