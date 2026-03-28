@@ -3,16 +3,36 @@ app.py – Główna aplikacja Streamlit: Wiekowanie zapasów i kalkulacja rezerw
 """
 from __future__ import annotations
 
-import io
-from datetime import date, datetime
+from datetime import date
 
 import pandas as pd
-import streamlit as st
 import plotly.express as px
-import plotly.graph_objects as go
+import streamlit as st
 
-# ---------------- LOGIN ----------------
-def login():
+from export import df_to_csv_bytes, export_to_excel, summary_to_csv_bytes
+from processing import DEFAULT_MAPPING_PATH, process_data
+from utils import (
+    display_financial_metrics,
+    display_metrics_row,
+    style_detail_df,
+    style_summary_df,
+)
+
+# ---------------------------------------------------------------------------
+# Konfiguracja strony - MUSI BYĆ PRZED INNYMI WYWOŁANIAMI st.*
+# ---------------------------------------------------------------------------
+st.set_page_config(
+    page_title="Wiekowanie zapasów i kalkulacja rezerw",
+    page_icon="📦",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
+
+# ---------------------------------------------------------------------------
+# Logowanie
+# ---------------------------------------------------------------------------
+def login() -> None:
     if "logged" not in st.session_state:
         st.session_state.logged = False
 
@@ -31,180 +51,286 @@ def login():
 
         st.stop()
 
+
 login()
-# ---------------------------------------
-
-from export import df_to_csv_bytes, export_to_excel, summary_to_csv_bytes
-from processing import DEFAULT_MAPPING_PATH, process_data
-from utils import (
-    display_financial_metrics,
-    display_metrics_row,
-    style_detail_df,
-    style_summary_df,
-)
 
 # ---------------------------------------------------------------------------
-# Konfiguracja strony
-# ---------------------------------------------------------------------------
-st.set_page_config(
-    page_title="Wiekowanie zapasów i kalkulacja rezerw",
-    page_icon="📦",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
-
-# ---------------------------------------------------------------------------
-# CSS – kolorystyka szaro-pomarańczowa
+# CSS
 # ---------------------------------------------------------------------------
 st.markdown(
     """
 <style>
-/* Import Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-/* Główny styl */
 html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
 }
 
-/* Nagłówek główny */
+body {
+    background-color: #F5F7FA;
+    color: #1F2937;
+}
+
+.block-container {
+    padding-top: 0.9rem;
+    padding-bottom: 1.4rem;
+    max-width: 1320px;
+}
+
+/* Nagłówek */
 .main-header {
-    background: linear-gradient(135deg, #404040 0%, #1a1a1a 100%);
-    padding: 1.5rem 2rem;
-    border-radius: 12px;
-    margin-bottom: 1.5rem;
-    border-left: 6px solid #E8650A;
+    background: linear-gradient(135deg, #1F3A5F 0%, #2E4D73 100%);
+    padding: 1.35rem 1.6rem;
+    border-radius: 14px;
+    margin-bottom: 1rem;
+    border-left: 6px solid #4A90E2;
+    box-shadow: 0 8px 24px rgba(31, 58, 95, 0.16);
 }
 .main-header h1 {
     color: #FFFFFF;
-    font-size: 1.8rem;
+    font-size: 1.75rem;
     font-weight: 700;
     margin: 0;
 }
 .main-header p {
-    color: #AAAAAA;
-    font-size: 0.9rem;
-    margin: 0.3rem 0 0 0;
+    color: #D9E2F0;
+    font-size: 0.95rem;
+    margin: 0.35rem 0 0 0;
 }
 
 /* Sekcje */
 .section-header {
-    background: linear-gradient(90deg, #E8650A 0%, #FAD7B8 100%);
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
-    margin: 1rem 0 0.8rem 0;
+    background: linear-gradient(90deg, #1F3A5F 0%, #2E5C9A 100%);
+    padding: 0.55rem 0.85rem;
+    border-radius: 10px;
+    margin: 0.8rem 0 0.55rem 0;
     font-weight: 600;
-    color: #1a1a1a;
-    font-size: 0.95rem;
+    color: #FFFFFF;
+    font-size: 1rem;
+    box-shadow: 0 3px 10px rgba(31, 58, 95, 0.10);
 }
 
-/* Badge aktywnego mappingu */
+/* Karty */
+.form-card,
+.kpi-wrapper {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 14px;
+    padding: 0.95rem 1rem 0.8rem 1rem;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+    margin-bottom: 1rem;
+}
+
+.kpi-section-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #1F3A5F;
+    margin: 0.15rem 0 0.8rem 0;
+}
+
+.compact-spacer {
+    height: 0.3rem;
+}
+
+/* Badge */
 .badge-default {
-    background: #E8650A;
+    background: #1F3A5F;
     color: white;
-    padding: 0.25rem 0.8rem;
+    padding: 0.32rem 0.85rem;
     border-radius: 20px;
-    font-size: 0.8rem;
+    font-size: 0.82rem;
     font-weight: 600;
     display: inline-block;
 }
 .badge-user {
-    background: #404040;
+    background: #2E5C9A;
     color: white;
-    padding: 0.25rem 0.8rem;
+    padding: 0.32rem 0.85rem;
     border-radius: 20px;
-    font-size: 0.8rem;
+    font-size: 0.82rem;
     font-weight: 600;
     display: inline-block;
 }
 
 /* Instrukcja */
 .instruction-box {
-    background: #FFF8F3;
-    border: 1px solid #FAD7B8;
-    border-radius: 8px;
-    padding: 1rem 1.2rem;
-    margin-bottom: 1rem;
-    font-size: 0.88rem;
-    color: #404040;
+    background: #F4F7FB;
+    border: 1px solid #D6E0F0;
+    border-radius: 10px;
+    padding: 0.95rem 1.1rem;
+    margin-bottom: 0.8rem;
+    font-size: 0.92rem;
+    color: #334155;
+    line-height: 1.55;
 }
 .instruction-box ol {
     margin: 0.5rem 0 0 1rem;
     padding: 0;
 }
 .instruction-box li {
-    margin-bottom: 0.3rem;
+    margin-bottom: 0.25rem;
+}
+.instruction-box code {
+    background: #EAF0F8;
+    color: #1F3A5F;
+    padding: 0.1rem 0.3rem;
+    border-radius: 6px;
+    font-size: 0.88rem;
 }
 
 /* Metryki */
 div[data-testid="stMetric"] {
-    background: #F8F8F8;
-    border: 1px solid #E0E0E0;
-    border-radius: 8px;
-    padding: 0.6rem 1rem;
-    border-top: 3px solid #E8650A;
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    padding: 0.55rem 0.8rem;
+    border-top: 4px solid #1F3A5F;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+    min-height: 102px;
+}
+div[data-testid="stMetricLabel"] {
+    color: #475569;
+    font-weight: 600;
+}
+div[data-testid="stMetricValue"] {
+    color: #0F172A;
+    font-weight: 700;
 }
 
-/* Przyciski */
+/* Przycisk */
 .stButton > button {
-    background: linear-gradient(135deg, #E8650A, #C45508);
+    background: linear-gradient(135deg, #1F3A5F, #2E4D73);
     color: white;
     font-weight: 600;
     border: none;
-    border-radius: 8px;
-    padding: 0.6rem 2rem;
-    font-size: 1rem;
-    transition: all 0.2s;
-    box-shadow: 0 2px 8px rgba(232,101,10,0.3);
+    border-radius: 10px;
+    padding: 0.52rem 1.5rem;
+    font-size: 0.96rem;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 12px rgba(31, 58, 95, 0.22);
+    width: 100%;
 }
 .stButton > button:hover {
-    background: linear-gradient(135deg, #C45508, #A34406);
-    box-shadow: 0 4px 12px rgba(232,101,10,0.4);
+    background: linear-gradient(135deg, #27486E, #3A5D88);
+    box-shadow: 0 6px 14px rgba(31, 58, 95, 0.28);
     transform: translateY(-1px);
 }
 
-/* Pobieranie */
+/* Download */
 .stDownloadButton > button {
-    background: #404040;
-    color: white;
-    border: none;
-    border-radius: 6px;
-    font-weight: 500;
+    background: #FFFFFF;
+    color: #1F3A5F;
+    border: 1px solid #C7D3E3;
+    border-radius: 10px;
+    font-weight: 600;
+    padding: 0.6rem 1.1rem;
 }
 .stDownloadButton > button:hover {
-    background: #606060;
+    background: #F3F7FC;
+    border-color: #AFC2DD;
 }
 
-/* Separator */
+/* Inputy */
+label, .stDateInput label, .stFileUploader label, .stRadio label {
+    color: #111827 !important;
+    font-size: 0.96rem !important;
+    font-weight: 600 !important;
+}
+
+.stTextInput input,
+.stDateInput input,
+textarea {
+    border-radius: 10px !important;
+    border: 1px solid #CBD5E1 !important;
+    padding: 0.35rem 0.6rem !important;
+    font-size: 0.95rem !important;
+}
+
+/* Upload */
+[data-testid="stFileUploader"] {
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    background: #FFFFFF;
+}
+[data-testid="stFileUploaderDropzone"] {
+    background: #F8FAFC;
+    border: 2px dashed #C7D3E3;
+    border-radius: 12px;
+    padding: 0.85rem;
+}
+[data-testid="stFileUploaderDropzone"]:hover {
+    border-color: #4A90E2;
+    background: #F1F6FD;
+}
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px;
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: 8px 8px 0 0;
+    font-weight: 600;
+    background: #EEF3F8;
+    color: #334155;
+    padding: 0.45rem 1rem;
+}
+.stTabs [aria-selected="true"] {
+    background: #1F3A5F !important;
+    color: #FFFFFF !important;
+}
+
+/* Alerts */
+.stAlert {
+    border-radius: 12px;
+    border: 1px solid #E2E8F0;
+}
+
+/* Tabele */
+[data-testid="stDataFrame"] {
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.04);
+}
+
+/* Expander */
+details {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    padding: 0.15rem 0.5rem;
+}
+details summary {
+    font-weight: 600;
+    color: #1F3A5F;
+}
+
 hr {
-    border-top: 2px solid #FAD7B8;
-    margin: 1.5rem 0;
+    border-top: 1px solid #D9E2EC;
+    margin: 1rem 0;
+}
+
+.element-container {
+    margin-bottom: 0.2rem;
 }
 
 /* Ukryj zbędne elementy Streamlit */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 header {visibility: hidden;}
-
-/* Zakładki */
-.stTabs [data-baseweb="tab-list"] {
-    gap: 8px;
-}
-.stTabs [data-baseweb="tab"] {
-    border-radius: 6px 6px 0 0;
-    font-weight: 500;
-}
 </style>
 """,
     unsafe_allow_html=True,
 )
+
+
+# ---------------------------------------------------------------------------
+# Wykresy
+# ---------------------------------------------------------------------------
 def render_charts(df: pd.DataFrame) -> None:
-    """Renderuje dashboard wykresów na podstawie przetworzonych danych."""
     st.markdown('<div class="section-header">📈 Dashboard i wizualizacje</div>', unsafe_allow_html=True)
 
     chart_df = df.copy()
-
-    # Bezpieczeństwo typów
     chart_df["Wartość mag."] = pd.to_numeric(chart_df["Wartość mag."], errors="coerce").fillna(0.0)
     chart_df["Kwota rezerwy"] = pd.to_numeric(chart_df["Kwota rezerwy"], errors="coerce").fillna(0.0)
     chart_df["Rodzaj indeksu"] = chart_df["Rodzaj indeksu"].fillna("BRAK")
@@ -212,9 +338,6 @@ def render_charts(df: pd.DataFrame) -> None:
     chart_df["Przedział wiekowania"] = chart_df["Przedział wiekowania"].fillna("BRAK")
     chart_df["Magazyn"] = chart_df["Magazyn"].fillna("BRAK")
 
-    # -------------------------
-    # 1. Udział PROWAX / NON PROWAX
-    # -------------------------
     share_df = (
         chart_df.groupby("Rodzaj indeksu", as_index=False)["Wartość mag."]
         .sum()
@@ -229,20 +352,9 @@ def render_charts(df: pd.DataFrame) -> None:
         title="Udział procentowy stanu magazynowego: PROWAX / NON PROWAX",
     )
     fig_share.update_traces(textposition="inside", textinfo="percent+label")
-    fig_share.update_layout(
-        margin=dict(l=20, r=20, t=60, b=20),
-        legend_title_text="Rodzaj indeksu",
-        height=420,
-    )
+    fig_share.update_layout(margin=dict(l=20, r=20, t=60, b=20), height=420)
 
-    # -------------------------
-    # 2. Stan magazynu i rezerwa: PROWAX / NON PROWAX
-    # -------------------------
-    compare_df = (
-        chart_df.groupby("Rodzaj indeksu", as_index=False)[["Wartość mag.", "Kwota rezerwy"]]
-        .sum()
-    )
-
+    compare_df = chart_df.groupby("Rodzaj indeksu", as_index=False)[["Wartość mag.", "Kwota rezerwy"]].sum()
     compare_long = compare_df.melt(
         id_vars="Rodzaj indeksu",
         value_vars=["Wartość mag.", "Kwota rezerwy"],
@@ -265,18 +377,13 @@ def render_charts(df: pd.DataFrame) -> None:
         height=420,
         xaxis_title="Wartość [PLN]",
         yaxis_title="",
-        legend_title_text="Miara",
     )
 
-    # -------------------------
-    # 3. Rezerwa wg Type of materials
-    # -------------------------
     reserve_by_type = (
         chart_df.groupby("Type of materials", as_index=False)["Kwota rezerwy"]
         .sum()
         .sort_values("Kwota rezerwy", ascending=False)
     )
-
     fig_type = px.bar(
         reserve_by_type,
         x="Type of materials",
@@ -291,15 +398,8 @@ def render_charts(df: pd.DataFrame) -> None:
         yaxis_title="Kwota rezerwy [PLN]",
     )
 
-    # -------------------------
-    # 4. Wiekowanie zapasu wg przedziałów i rodzaju indeksu
-    # -------------------------
     age_order = ["0-3 mcy", "3-6 mcy", "6-9 mcy", "9-12 mcy", "pow 12 mcy", "data > dzień analizy", "BRAK"]
-
-    aging_df = (
-        chart_df.groupby(["Przedział wiekowania", "Rodzaj indeksu"], as_index=False)["Wartość mag."]
-        .sum()
-    )
+    aging_df = chart_df.groupby(["Przedział wiekowania", "Rodzaj indeksu"], as_index=False)["Wartość mag."].sum()
     aging_df["Przedział wiekowania"] = pd.Categorical(
         aging_df["Przedział wiekowania"],
         categories=age_order,
@@ -321,19 +421,14 @@ def render_charts(df: pd.DataFrame) -> None:
         height=420,
         xaxis_title="Przedział wiekowania",
         yaxis_title="Wartość magazynowa [PLN]",
-        legend_title_text="Rodzaj indeksu",
     )
 
-    # -------------------------
-    # 5. TOP 10 magazynów wg rezerwy
-    # -------------------------
     top_mag = (
         chart_df.groupby("Magazyn", as_index=False)["Kwota rezerwy"]
         .sum()
         .sort_values("Kwota rezerwy", ascending=False)
         .head(10)
     )
-
     fig_top = px.bar(
         top_mag.sort_values("Kwota rezerwy", ascending=True),
         x="Kwota rezerwy",
@@ -349,9 +444,6 @@ def render_charts(df: pd.DataFrame) -> None:
         yaxis_title="",
     )
 
-    # -------------------------
-    # Layout 2x2 + 1 pełna szerokość
-    # -------------------------
     row1_col1, row1_col2 = st.columns(2, gap="large")
     with row1_col1:
         st.plotly_chart(fig_share, use_container_width=True)
@@ -365,7 +457,8 @@ def render_charts(df: pd.DataFrame) -> None:
         st.plotly_chart(fig_aging, use_container_width=True)
 
     st.plotly_chart(fig_top, use_container_width=True)
-    
+
+
 # ---------------------------------------------------------------------------
 # Nagłówek
 # ---------------------------------------------------------------------------
@@ -391,7 +484,7 @@ with st.expander("📖 Jak korzystać z aplikacji?", expanded=False):
     <li><strong>Wybierz datę analizy</strong> – na jaką datę ma być wykonane wiekowanie zapasów.</li>
     <li><strong>Wgraj plik zapasów</strong> – plik Excel z arkuszem <em>MyPrint</em>, nagłówki w wierszu 4.</li>
     <li><strong>Wybierz źródło mappingu</strong> – domyślny (wbudowany) lub własny plik Excel z arkuszami <em>Mapp1</em> i <em>Mapp2</em>.</li>
-    <li><strong>Kliknij „Przelicz"</strong> – aplikacja wykona wiekowanie i wyliczy rezerwy.</li>
+    <li><strong>Kliknij „Przelicz”</strong> – aplikacja wykona wiekowanie i wyliczy rezerwy.</li>
     <li><strong>Pobierz wyniki</strong> – plik Excel z danymi szczegółowymi, podsumowaniem i logiem walidacji.</li>
 </ol>
 <strong>Wymagane kolumny w pliku zapasów:</strong>
@@ -402,12 +495,17 @@ with st.expander("📖 Jak korzystać z aplikacji?", expanded=False):
     )
 
 # ---------------------------------------------------------------------------
-# Sekcja 1 – Data analizy
+# Formularz 2-kolumnowy
 # ---------------------------------------------------------------------------
-st.markdown('<div class="section-header">📅 1. Data analizy</div>', unsafe_allow_html=True)
+left_col, right_col = st.columns([1, 1], gap="large")
 
-col_date, col_info = st.columns([1, 2])
-with col_date:
+mapping_file = None
+mapping_ok = True
+
+with left_col:
+    st.markdown('<div class="form-card">', unsafe_allow_html=True)
+
+    st.markdown('<div class="section-header">📅 1. Data analizy</div>', unsafe_allow_html=True)
     analysis_date = st.date_input(
         "Wybierz datę, na którą wykonać wiekowanie:",
         value=date.today(),
@@ -415,99 +513,91 @@ with col_date:
         help="Wiek zapasu liczymy od 'Data przyjęcia' do tej daty.",
     )
 
-# ---------------------------------------------------------------------------
-# Sekcja 2 – Upload pliku zapasów
-# ---------------------------------------------------------------------------
-st.markdown('<div class="section-header">📂 2. Plik z zapasami</div>', unsafe_allow_html=True)
+    st.markdown('<div class="compact-spacer"></div>', unsafe_allow_html=True)
 
-stock_file = st.file_uploader(
-    "Wgraj plik Excel z zapasami (arkusz: MyPrint, nagłówki w wierszu 4):",
-    type=["xlsx", "xls"],
-    key="stock_uploader",
-    help="Plik musi zawierać arkusz 'MyPrint' z nagłówkami w wierszu 4.",
-)
-
-if stock_file:
-    st.success(f"✅ Wgrany plik: **{stock_file.name}** ({stock_file.size / 1024:.1f} KB)")
-
-# ---------------------------------------------------------------------------
-# Sekcja 3 – Źródło mappingu
-# ---------------------------------------------------------------------------
-st.markdown('<div class="section-header">🗂️ 3. Źródło mappingu</div>', unsafe_allow_html=True)
-
-mapping_source = st.radio(
-    "Wybierz źródło mappingu:",
-    options=["Dane domyślne", "Chcę załadować nowe"],
-    horizontal=True,
-    help=(
-        "**Dane domyślne** – wbudowany plik mappingu (Mapp1 + Mapp2). "
-        "**Chcę załadować nowe** – własny plik Excel z arkuszami Mapp1 i Mapp2."
-    ),
-)
-
-mapping_file = None
-mapping_ok = True
-
-if mapping_source == "Dane domyślne":
-    if DEFAULT_MAPPING_PATH.exists():
-        st.markdown(
-            '<span class="badge-default">🟠 Aktywny mapping: domyślny</span>',
-            unsafe_allow_html=True,
-        )
-        st.caption(f"Plik: `data/default_mapping.xlsx` (Mapp1: lista PROWAX | Mapp2: typy materiałów)")
-    else:
-        st.error(
-            "❌ Domyślny plik mappingu nie istnieje! "
-            "Umieść plik `default_mapping.xlsx` w katalogu `data/`."
-        )
-        mapping_ok = False
-
-else:  # Chcę załadować nowe
-    mapping_file = st.file_uploader(
-        "Wgraj plik Excel z mappingiem (arkusze: Mapp1, Mapp2):",
+    st.markdown('<div class="section-header">📂 2. Plik z zapasami</div>', unsafe_allow_html=True)
+    stock_file = st.file_uploader(
+        "Wgraj plik Excel z zapasami (arkusz: MyPrint, nagłówki w wierszu 4):",
         type=["xlsx", "xls"],
-        key="mapping_uploader",
-        help="Plik musi zawierać arkusz 'Mapp1' (indeksy PROWAX w kolumnie B) i 'Mapp2' (Magazyn + Typ surowca → Type of materials).",
+        key="stock_uploader",
+        help="Plik musi zawierać arkusz 'MyPrint' z nagłówkami w wierszu 4.",
     )
-    if mapping_file:
+
+    if stock_file:
+        st.success(f"✅ Wgrany plik: **{stock_file.name}** ({stock_file.size / 1024:.1f} KB)")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with right_col:
+    st.markdown('<div class="form-card">', unsafe_allow_html=True)
+
+    st.markdown('<div class="section-header">🗂️ 3. Źródło mappingu</div>', unsafe_allow_html=True)
+
+    mapping_source = st.radio(
+        "Wybierz źródło mappingu:",
+        options=["Dane domyślne", "Chcę załadować nowe"],
+        horizontal=True,
+        help=(
+            "**Dane domyślne** – wbudowany plik mappingu (Mapp1 + Mapp2). "
+            "**Chcę załadować nowe** – własny plik Excel z arkuszami Mapp1 i Mapp2."
+        ),
+    )
+
+    if mapping_source == "Dane domyślne":
+        if DEFAULT_MAPPING_PATH.exists():
+            st.markdown(
+                '<span class="badge-default">🔵 Aktywny mapping: domyślny</span>',
+                unsafe_allow_html=True,
+            )
+            st.caption("Plik: data/default_mapping.xlsx")
+        else:
+            st.error(
+                "❌ Domyślny plik mappingu nie istnieje. Dodaj plik `data/default_mapping.xlsx`."
+            )
+            mapping_ok = False
+    else:
         st.markdown(
-            '<span class="badge-user">⚫ Aktywny mapping: plik użytkownika</span>',
+            '<span class="badge-user">🔷 Aktywny mapping: plik użytkownika</span>',
             unsafe_allow_html=True,
         )
-        st.caption(f"Plik: **{mapping_file.name}** ({mapping_file.size / 1024:.1f} KB)")
-    else:
-        st.warning(
-            "⚠️ Nie wgrałeś pliku mappingu. "
-            "Wgraj plik Excel z arkuszami Mapp1 i Mapp2, aby kontynuować."
+
+        mapping_file = st.file_uploader(
+            "Wgraj plik Excel z mappingiem (arkusze: Mapp1 i Mapp2):",
+            type=["xlsx", "xls"],
+            key="mapping_uploader",
+            help="Plik musi zawierać arkusze Mapp1 i Mapp2.",
         )
-        mapping_ok = False
 
-st.markdown("---")
+        if mapping_file:
+            st.success(f"✅ Wgrany mapping: **{mapping_file.name}**")
+        else:
+            st.info("ℹ️ Wybierz plik mappingu, aby aktywować przeliczanie.")
+            mapping_ok = False
 
-# ---------------------------------------------------------------------------
-# Sekcja 4 – Przycisk przeliczenia
-# ---------------------------------------------------------------------------
-st.markdown('<div class="section-header">⚙️ 4. Przelicz</div>', unsafe_allow_html=True)
+    st.markdown('<div class="compact-spacer"></div>', unsafe_allow_html=True)
 
-can_run = stock_file is not None and mapping_ok
+    st.markdown('<div class="section-header">⚙️ 4. Przelicz</div>', unsafe_allow_html=True)
 
-if not stock_file:
-    st.info("ℹ️ Wgraj plik z zapasami, aby aktywować przycisk przeliczenia.")
-elif not mapping_ok and mapping_source == "Chcę załadować nowe":
-    st.info("ℹ️ Wgraj plik mappingu, aby aktywować przycisk przeliczenia.")
+    can_run = stock_file is not None and mapping_ok
 
-run_btn = st.button(
-    "🚀 Przelicz wiekowanie i rezerwy",
-    disabled=not can_run,
-    use_container_width=True,
-)
+    if not stock_file:
+        st.info("ℹ️ Wgraj plik z zapasami, aby aktywować przycisk przeliczenia.")
+    elif not mapping_ok and mapping_source == "Chcę załadować nowe":
+        st.info("ℹ️ Wgraj plik mappingu, aby aktywować przycisk przeliczenia.")
+
+    run_btn = st.button(
+        "🚀 Przelicz wiekowanie i rezerwy",
+        disabled=not can_run,
+        use_container_width=True,
+    )
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Przetwarzanie
 # ---------------------------------------------------------------------------
 if run_btn and can_run:
     with st.spinner("⏳ Trwa przetwarzanie danych..."):
-        # Resetuj pozycję w plikach
         stock_file.seek(0)
         if mapping_file:
             mapping_file.seek(0)
@@ -519,7 +609,6 @@ if run_btn and can_run:
             mapping_file=mapping_file,
         )
 
-    # Błędy krytyczne
     if result["errors"]:
         for err in result["errors"]:
             st.error(f"❌ {err}")
@@ -528,11 +617,9 @@ if run_btn and can_run:
         st.error("❌ Przetwarzanie nie powiodło się. Sprawdź powyższe błędy.")
         st.stop()
 
-    # Ostrzeżenia
     for warn in result["warnings"]:
         st.warning(warn)
 
-    # Sukces
     st.success(
         f"✅ Przetwarzanie zakończone pomyślnie! "
         f"Mapping: **{result['mapping_source_label']}** | "
@@ -543,28 +630,28 @@ if run_btn and can_run:
     summary: pd.DataFrame = result["summary"]
     stats: dict = result["stats"]
 
-  # Metryki
-st.markdown('<div class="section-header">📊 Statystyki przetwarzania</div>', unsafe_allow_html=True)
-display_metrics_row(stats)
-st.markdown("<br>", unsafe_allow_html=True)
-display_financial_metrics(stats)
+    st.markdown('<div class="kpi-wrapper">', unsafe_allow_html=True)
+    st.markdown('<div class="kpi-section-title">📊 Statystyki przetwarzania</div>', unsafe_allow_html=True)
+    display_metrics_row(stats)
+    st.markdown("<div style='height:0.35rem;'></div>", unsafe_allow_html=True)
+    display_financial_metrics(stats)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown("---")
+    st.markdown("---")
 
-# Wykresy
-render_charts(df)
+    render_charts(df)
 
-st.markdown("---")
+    st.markdown("---")
 
-# Podgląd wyników
-tab1, tab2 = st.tabs(["📋 Dane szczegółowe (pierwsze 100 wierszy)", "📊 Tabela podsumowująca"])
+    tab1, tab2 = st.tabs(
+        ["📋 Dane szczegółowe (pierwsze 100 wierszy)", "📊 Tabela podsumowująca"]
+    )
 
-with tab1:
+    with tab1:
         st.markdown(f"**Łącznie rekordów:** {len(df):,}".replace(",", " "))
         try:
             st.dataframe(style_detail_df(df), use_container_width=True, height=450)
         except Exception:
-            # Fallback bez stylowania
             display_cols = [c for c in df.columns if c in [
                 "Index materiałowy", "Magazyn", "Typ surowca", "Data przyjęcia",
                 "Wartość mag.", "Rodzaj indeksu", "Type of materials",
@@ -572,7 +659,7 @@ with tab1:
             ]]
             st.dataframe(df[display_cols].head(100), use_container_width=True, height=450)
 
-with tab2:
+    with tab2:
         try:
             st.dataframe(style_summary_df(summary), use_container_width=True)
         except Exception:
@@ -581,12 +668,11 @@ with tab2:
                 flat.columns = [" | ".join(str(c) for c in col) for col in flat.columns]
             st.dataframe(flat.reset_index(), use_container_width=True)
 
-st.markdown("---")
+    st.markdown("---")
 
- # Eksport
-st.markdown('<div class="section-header">💾 5. Pobierz wyniki</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">💾 5. Pobierz wyniki</div>', unsafe_allow_html=True)
 
-with st.spinner("⏳ Generowanie pliku Excel..."):
+    with st.spinner("⏳ Generowanie pliku Excel..."):
         stock_file.seek(0)
         excel_bytes = export_to_excel(
             df=df,
@@ -598,13 +684,13 @@ with st.spinner("⏳ Generowanie pliku Excel..."):
             mapping_source_label=result["mapping_source_label"],
         )
 
-filename_date = analysis_date.strftime("%Y%m%d")
-excel_filename = f"wiekowanie_zapasow_{filename_date}.xlsx"
+    filename_date = analysis_date.strftime("%Y%m%d")
+    excel_filename = f"wiekowanie_zapasow_{filename_date}.xlsx"
 
-col1, col2, col3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
-with col1:
-       st.download_button(
+    with col1:
+        st.download_button(
             label="📥 Pobierz Excel (pełny)",
             data=excel_bytes,
             file_name=excel_filename,
@@ -613,7 +699,7 @@ with col1:
             help="Plik Excel z arkuszami: Dane szczegółowe, Podsumowanie, Log walidacji.",
         )
 
-with col2:
+    with col2:
         csv_detail = df_to_csv_bytes(df)
         st.download_button(
             label="📄 CSV – dane szczegółowe",
@@ -623,7 +709,7 @@ with col2:
             use_container_width=True,
         )
 
-with col3:
+    with col3:
         csv_summary = summary_to_csv_bytes(summary)
         st.download_button(
             label="📄 CSV – podsumowanie",
@@ -633,9 +719,9 @@ with col3:
             use_container_width=True,
         )
 
-st.markdown(
+    st.markdown(
         """
-        <div style="text-align:center; color:#808080; font-size:0.8rem; margin-top:2rem;">
+        <div style="text-align:center; color:#808080; font-size:0.8rem; margin-top:1.5rem;">
         Wiekowanie zapasów i kalkulacja rezerw &nbsp;|&nbsp;
         Dane przetworzone lokalnie, nie są przesyłane na zewnętrzne serwery.
         </div>
@@ -643,7 +729,6 @@ st.markdown(
         unsafe_allow_html=True,
     )
 
-elif not run_btn:
-    # Stan początkowy – podpowiedź
+else:
     if stock_file and mapping_ok:
         st.info("👆 Wszystko gotowe! Kliknij przycisk **Przelicz wiekowanie i rezerwy**.")
