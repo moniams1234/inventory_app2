@@ -583,10 +583,10 @@ with tab2:
 
 st.markdown("---")
 
-    # Eksport
-    st.markdown('<div class="section-header">💾 5. Pobierz wyniki</div>', unsafe_allow_html=True)
+ # Eksport
+st.markdown('<div class="section-header">💾 5. Pobierz wyniki</div>', unsafe_allow_html=True)
 
-    with st.spinner("⏳ Generowanie pliku Excel..."):
+with st.spinner("⏳ Generowanie pliku Excel..."):
         stock_file.seek(0)
         excel_bytes = export_to_excel(
             df=df,
@@ -598,13 +598,13 @@ st.markdown("---")
             mapping_source_label=result["mapping_source_label"],
         )
 
-    filename_date = analysis_date.strftime("%Y%m%d")
-    excel_filename = f"wiekowanie_zapasow_{filename_date}.xlsx"
+ filename_date = analysis_date.strftime("%Y%m%d")
+excel_filename = f"wiekowanie_zapasow_{filename_date}.xlsx"
 
-    col1, col2, col3 = st.columns(3)
+ col1, col2, col3 = st.columns(3)
 
-    with col1:
-        st.download_button(
+with col1:
+       st.download_button(
             label="📥 Pobierz Excel (pełny)",
             data=excel_bytes,
             file_name=excel_filename,
@@ -613,7 +613,7 @@ st.markdown("---")
             help="Plik Excel z arkuszami: Dane szczegółowe, Podsumowanie, Log walidacji.",
         )
 
-    with col2:
+with col2:
         csv_detail = df_to_csv_bytes(df)
         st.download_button(
             label="📄 CSV – dane szczegółowe",
@@ -623,7 +623,7 @@ st.markdown("---")
             use_container_width=True,
         )
 
-    with col3:
+with col3:
         csv_summary = summary_to_csv_bytes(summary)
         st.download_button(
             label="📄 CSV – podsumowanie",
@@ -633,7 +633,7 @@ st.markdown("---")
             use_container_width=True,
         )
 
-    st.markdown(
+st.markdown(
         """
         <div style="text-align:center; color:#808080; font-size:0.8rem; margin-top:2rem;">
         Wiekowanie zapasów i kalkulacja rezerw &nbsp;|&nbsp;
