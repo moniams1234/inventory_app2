@@ -581,7 +581,7 @@ with tab2:
                 flat.columns = [" | ".join(str(c) for c in col) for col in flat.columns]
             st.dataframe(flat.reset_index(), use_container_width=True)
 
-    st.markdown("---")
+st.markdown("---")
 
     # Eksport
     st.markdown('<div class="section-header">💾 5. Pobierz wyniki</div>', unsafe_allow_html=True)
